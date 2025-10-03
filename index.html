@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cole Cole Clicker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 20px;
+      transition: background 0.25s, color 0.25s;
+    }
+    body.dark {
+      background: #111;
+      color: #eee;
+    }
+    .btn {
+      padding: 8px 14px;
+      margin: 6px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .shop-item { margin:6px 0; display:block; }
+    #eventLog {
+      max-height: 120px;
+      overflow-y: auto;
+      text-align: left;
+      padding: 10px;
+      border: 1px solid #ccc;
+      margin: 10px auto;
+      width: 90%;
+      white-space: pre-wrap;
+      background: #eee;
+    }
+    body.dark #eventLog { background:#222; color:#fff; border-color:#444; }
+
+    /* Admin panel modal */
+    #adminModal {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 700px;
+      max-width: 95%;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      padding: 16px;
+      display: none;
+      z-index: 1000;
+    }
+    body.dark #adminModal { background:#222; color:#fff; box-shadow: 0 8px 30px rgba(0,0,0,0.8); border:1px solid #333; }
+
+    #adminModal h3 { margin-top: 0; }
+    .admin-row { display:flex; gap:8px; margin:6px 0; flex-wrap:wrap; justify-content:center; }
+    .admin-input { width:110px; padding:6px; }
+    .admin-small { padding:6px 10px; }
+    #modalOverlay {
+      position:fixed; inset:0; background:rgba(0,0,0,0.4); display:none; z-index:900;
+    }
+    .small-note { font-size:12px; color:#666; }
+    body.dark .small-note { color:#aaa; }
+  </style>
+</head>
+<body>
+  <h1>Cole Cole Clicker</h1>
+  <h2 id="points">Points: 0</h2>
+  <h3 id="prestige">Prestige x1.0</h3>
+
+  <div>
+    <button class="btn" onclick="clickPoints()">Click Me!</button>
+    <button class="btn" onclick="prestige()">Prestige</button>
+    <button class="btn" onclick="saveGame()">Save</button>
+    <button class="btn" onclick="loadGame()">Load</button>
+    <button class="btn" onclick="claimDailyBonus()">Daily Bonus</button>
+    <button class="btn" onclick="toggleDarkMode()">Toggle Dark Mode</button>
+    <button class="btn" onclick="openAdminLogin()">Admin</button>
+  </div>
+
+  <h3>Shop</h3>
+  <div id="shop" style="max-width:700px;margin:0 auto;"></div>
+
+  <h3>Event Log</h3>
+  <div id="eventLog"></div>
+
+  <!-- Admin overlay & modal -->
+  <div id="modalOverlay"></div>
+  <div id="adminModal" role="dialog" aria-modal="true" aria-hidden="true">
+    <h3>Admin Panel</h3>
+    <div class="small-note">Logged in as <strong>admin</strong>. Use responsibly.</div>
+
+    <div style="border-top:1px dashed #ccc; margin:10px 0;"></div>
+
+    <div class="admin-row">
+      <input id="adminAddAmount" class="admin-input" type="number" placeholder="Points to add" />
+      <button class="btn admin-small" onclick="adminAddPoints()">Add Points</button>
+
+      <input id="adminSetAmount" class="admin-input" type="number" placeholder="Set points to" />
+      <button class="btn admin-small" onclick="adminSetPoints()">Set Points</button>
+    </div>
+
+    <div class="admin-row">
+      <input id="adminUpgradeName" class="admin-input" placeholder="Upgrade name" list="upgradeList" />
+      <datalist id="upgradeList"></datalist>
+      <input id="adminUpgradeAmt" class="admin-input" type="number" placeholder="Amount" value="1" />
+      <button class="btn admin-small" onclick="adminGrantUpgrade()">Grant Upgrade</button>
+      <button class="btn admin-small" onclick="adminRemoveUpgrade()">Remove Upgrade</button>
+    </div>
+
+    <div class="admin-row">
+      <button class="btn admin-small" onclick="adminUnlockAll()">Unlock All Upgrades</button>
+      <button class="btn admin-small" onclick="adminIncreasePrestige()">+0.1 Prestige</button>
+      <button class="btn admin-small" onclick="adminResetGame()">Reset Game</button>
+      <button class="btn admin-small" onclick="adminClearSave()">Clear Save</button>
+    </div>
+
+    <div class="admin-row">
+      <button class="btn admin-small" onclick="toggleDarkMode()">Toggle Dark Mode</button>
+      <button class="btn admin-small" onclick="adminShowLog()">View Log (alert)</button>
+      <button class="btn admin-small" onclick="adminClearLog()">Clear Log</button>
+      <button class="btn admin-small" onclick="closeAdminPanel()">Close</button>
+    </div>
+
+    <div style="margin-top:8px; font-size:12px; color:#666">Password for admin is <code>honey</code>.</div>
+  </div>
+
+  <script>
+    // -------------------------
+    // Core Game State & Setup
+    // -------------------------
+    let points = 0;
+    let clickMult = 1;
+    let autoClick = 0;
+    let prestigeMult = 1.0;
+    let isDark = false;
+    let eventLog = [];
+
+    // Upgrades data
+    const upgrades = {
+      "Auto-Clicker I": { cost: 50, bonus: 1, owned: 0, type: "auto" },
+      "Click Multiplier I": { cost: 20, bonus: 2, owned: 0, type: "click" },
+      "Auto-Clicker II": { cost: 500, bonus: 10, owned: 0, type: "auto" },
+      "Click Multiplier II": { cost: 200, bonus: 5, owned: 0, type: "click" },
+      "Auto-Clicker III": { cost: 5000, bonus: 50, owned: 0, type: "auto" },
+      "Click Multiplier III": { cost: 3000, bonus: 10, owned: 0, type: "click" },
+      "Event Trigger": { cost: 5000, bonus: 0, owned: 0, type: "event" }
+    };
+
+    // Admin credential (local, for demo): password is "honey"
+    const ADMIN_PASSWORD = "honey";
+    let adminLoggedIn = false;
+
+    // -------------------------
+    // UI helpers
+    // -------------------------
+    function updateUI() {
+      document.getElementById('points').textContent = `Points: ${Math.floor(points)}`;
+      document.getElementById('prestige').textContent = `Prestige x${prestigeMult.toFixed(1)}`;
+      updateShop();
+      populateUpgradeDatalist();
+    }
+
+    function logEvent(msg) {
+      const ts = new Date().toLocaleTimeString();
+      eventLog.unshift(`[${ts}] ${msg}`);
+      if (eventLog.length > 50) eventLog.length = 50;
+      document.getElementById('eventLog').textContent = eventLog.join('\n');
+    }
+
+    // -------------------------
+    // Clicking & loops
+    // -------------------------
+    function clickPoints() {
+      points += clickMult * prestigeMult;
+      updateUI();
+      logEvent(`Clicked +${(clickMult * prestigeMult).toFixed(1)} pts`);
+    }
+
+    function autoClickerLoop() {
+      if (autoClick > 0) {
+        points += autoClick * prestigeMult;
+        updateUI();
+        logEvent(`Auto +${(autoClick * prestigeMult).toFixed(1)} pts`);
+      }
+      setTimeout(autoClickerLoop, 1000);
+    }
+
+    // -------------------------
+    // Shop & upgrades
+    // -------------------------
+    function updateShop() {
+      const shop = document.getElementById('shop');
+      shop.innerHTML = '';
+      for (const name in upgrades) {
+        const u = upgrades[name];
+        const btn = document.createElement('button');
+        btn.className = 'btn shop-item';
+        btn.textContent = `${name} — ${u.cost} pts — Owned: ${u.owned}`;
+        btn.onclick = () => buyUpgrade(name);
+        shop.appendChild(btn);
+      }
+    }
+
+    function buyUpgrade(name) {
+      const u = upgrades[name];
+      if (!u) { alert("Upgrade not found."); return; }
+      if (points >= u.cost) {
+        points -= u.cost;
+        u.owned += 1;
+
+        if (u.type === 'click') clickMult += u.bonus;
+        else if (u.type === 'auto') autoClick += u.bonus;
+        else if (u.type === 'event') triggerEvent();
+
+        u.cost = Math.floor(u.cost * 1.5);
+        updateUI();
+        logEvent(`Bought ${name}`);
+      } else {
+        alert("Not enough points.");
+      }
+    }
+
+    // Random events
+    function triggerEvent() {
+      const events = [
+        { name: "Jackpot!", effect: () => points += 5000, message: "You gained 5000 points!" },
+        { name: "Lucky Charm", effect: () => clickMult += 10, message: "Click multiplier +10!" },
+        { name: "Malfunction", effect: () => autoClick = Math.floor(autoClick / 2), message: "Auto-clickers malfunctioned" },
+        { name: "Tax Time", effect: () => points = Math.floor(points * 0.9), message: "Lost 10% points" }
+      ];
+      const chosen = events[Math.floor(Math.random()*events.length)];
+      chosen.effect();
+      alert(`${chosen.name}\n${chosen.message}`);
+      logEvent(`Event: ${chosen.name}`);
+      updateUI();
+    }
+
+    // -------------------------
+    // Prestige, save/load, daily
+    // -------------------------
+    function prestige() {
+      if (points < 10000) { alert("Need 10,000 points to prestige."); return; }
+      if (confirm("Prestige for +0.1x multiplier?")) {
+        prestigeMult += 0.1;
+        points = 0;
+        clickMult = 1;
+        autoClick = 0;
+        for (const n in upgrades) upgrades[n].owned = 0;
+        updateUI();
+        logEvent("Prestiged: +0.1x");
+      }
+    }
+
+    function saveGame() {
+      const save = {
+        points, clickMult, autoClick, prestigeMult,
+        upgrades: serializeUpgrades(upgrades),
+        eventLog
+      };
+      localStorage.setItem("coleClickerSave", JSON.stringify(save));
+      alert("Saved!");
+      logEvent("Game saved.");
+    }
+
+    function loadGame() {
+      const raw = localStorage.getItem("coleClickerSave");
+      if (!raw) { alert("No save found."); return; }
+      try {
+        const s = JSON.parse(raw);
+        points = s.points || 0;
+        clickMult = s.clickMult || 1;
+        autoClick = s.autoClick || 0;
+        prestigeMult = s.prestigeMult || 1.0;
+        if (s.upgrades) applySavedUpgrades(s.upgrades);
+        eventLog = Array.isArray(s.eventLog) ? s.eventLog : eventLog;
+        updateUI();
+        logEvent("Game loaded.");
+        alert("Game loaded.");
+      } catch (e) {
+        alert("Failed to load save (corrupt).");
+        console.error(e);
+      }
+    }
+
+    function serializeUpgrades(obj) {
+      const out = {};
+      for (const key in obj) {
+        out[key] = { cost: obj[key].cost, owned: obj[key].owned };
+      }
+      return out;
+    }
+    function applySavedUpgrades(saved) {
+      for (const key in saved) {
+        if (upgrades[key]) {
+          upgrades[key].cost = saved[key].cost ?? upgrades[key].cost;
+          upgrades[key].owned = saved[key].owned ?? upgrades[key].owned;
+        }
+      }
+    }
+
+    function claimDailyBonus() {
+      const today = new Date().toISOString().split('T')[0];
+      const last = localStorage.getItem("coleLastBonus");
+      if (last === today) { alert("Already claimed today."); return; }
+      const bonus = Math.floor(100 * prestigeMult);
+      points += bonus;
+      localStorage.setItem("coleLastBonus", today);
+      updateUI();
+      logEvent(`Daily +${bonus}`);
+      alert(`Daily bonus: +${bonus} pts`);
+    }
+
+    // -------------------------
+    // Admin UI & functions
+    // -------------------------
+    function openAdminLogin() {
+      const pwd = prompt("Enter admin password:");
+      if (pwd === null) return; // cancelled
+      if (pwd === ADMIN_PASSWORD) {
+        adminLoggedIn = true;
+        openAdminPanel();
+        logEvent("Admin logged in");
+      } else {
+        alert("Wrong password.");
+        logEvent("Failed admin login attempt");
+      }
+    }
+
+    function openAdminPanel() {
+      if (!adminLoggedIn) return alert("Not authorized.");
+      document.getElementById('modalOverlay').style.display = 'block';
+      const m = document.getElementById('adminModal');
+      m.style.display = 'block';
+      m.setAttribute('aria-hidden', 'false');
+    }
+    function closeAdminPanel() {
+      document.getElementById('modalOverlay').style.display = 'none';
+      const m = document.getElementById('adminModal');
+      m.style.display = 'none';
+      m.setAttribute('aria-hidden', 'true');
+    }
+
+    function adminAddPoints() {
+      const v = Number(document.getElementById('adminAddAmount').value) || 0;
+      points += v;
+      updateUI();
+      logEvent(`Admin added ${v} pts`);
+      alert(`Added ${v} points`);
+    }
+
+    function adminSetPoints() {
+      const v = Number(document.getElementById('adminSetAmount').value);
+      if (Number.isFinite(v)) {
+        points = v;
+        updateUI();
+        logEvent(`Admin set points to ${v}`);
+        alert(`Points set to ${v}`);
+      } else alert("Enter a valid number.");
+    }
+
+    function adminGrantUpgrade() {
+      const name = document.getElementById('adminUpgradeName').value.trim();
+      const amt = Math.max(1, Number(document.getElementById('adminUpgradeAmt').value) || 1);
+      if (!upgrades[name]) return alert("Upgrade not found. Use the exact upgrade name.");
+      upgrades[name].owned += amt;
+      // apply bonuses immediately (for click/auto)
+      if (upgrades[name].type === 'click') clickMult += upgrades[name].bonus * amt;
+      if (upgrades[name].type === 'auto') autoClick += upgrades[name].bonus * amt;
+      updateUI();
+      logEvent(`Admin granted ${amt} x ${name}`);
+      alert(`Granted ${amt} x ${name}`);
+    }
+
+    function adminRemoveUpgrade() {
+      const name = document.getElementById('adminUpgradeName').value.trim();
+      const amt = Math.max(1, Number(document.getElementById('adminUpgradeAmt').value) || 1);
+      if (!upgrades[name]) return alert("Upgrade not found.");
+      const removed = Math.min(upgrades[name].owned, amt);
+      upgrades[name].owned -= removed;
+      if (upgrades[name].type === 'click') clickMult = Math.max(1, clickMult - upgrades[name].bonus * removed);
+      if (upgrades[name].type === 'auto') autoClick = Math.max(0, autoClick - upgrades[name].bonus * removed);
+      updateUI();
+      logEvent(`Admin removed ${removed} x ${name}`);
+      alert(`Removed ${removed} x ${name}`);
+    }
+
+    function adminUnlockAll() {
+      for (const n in upgrades) {
+        const u = upgrades[n];
+        if (u.type === 'click') { clickMult += u.bonus * (5 - u.owned); }
+        if (u.type === 'auto') { autoClick += u.bonus * (5 - u.owned); }
+        u.owned = Math.max(u.owned, 5);
+      }
+      updateUI();
+      logEvent("Admin unlocked all upgrades (set to 5 owned each)");
+      alert("Unlocked upgrades.");
+    }
+
+    function adminIncreasePrestige() {
+      prestigeMult = +(prestigeMult + 0.1).toFixed(1);
+      updateUI();
+      logEvent("Admin increased prestige +0.1");
+      alert("Prestige increased by 0.1");
+    }
+
+    function adminResetGame() {
+      if (!confirm("Admin: Reset game to default state? This will clear points and upgrades.")) return;
+      points = 0; clickMult = 1; autoClick = 0; prestigeMult = 1.0;
+      for (const n in upgrades) { upgrades[n].owned = 0; }
+      updateUI();
+      logEvent("Admin reset game");
+      alert("Game reset.");
+    }
+
+    function adminClearSave() {
+      if (!confirm("Clear saved game from localStorage?")) return;
+      localStorage.removeItem("coleClickerSave");
+      localStorage.removeItem("coleLastBonus");
+      logEvent("Admin cleared save");
+      alert("Save cleared.");
+    }
+
+    function adminShowLog() {
+      alert(eventLog.join('\n') || '(log empty)');
+    }
+    function adminClearLog() {
+      if (!confirm("Clear event log?")) return;
+      eventLog = [];
+      document.getElementById('eventLog').textContent = '';
+      logEvent("Admin cleared log");
+      alert("Event log cleared.");
+    }
+
+    // Update datalist for admin upgrade name suggestions
+    function populateUpgradeDatalist() {
+      const dl = document.getElementById('upgradeList');
+      dl.innerHTML = '';
+      for (const n in upgrades) {
+        const opt = document.createElement('option');
+        opt.value = n;
+        dl.appendChild(opt);
+      }
+    }
+
+    // -------------------------
+    // Initialization
+    // -------------------------
+    populateUpgradeDatalist();
+    autoClickerLoop();
+    updateUI();
+
+    // close admin if overlay clicked
+    document.getElementById('modalOverlay').addEventListener('click', closeAdminPanel);
+
+    // Optional: expose some helpers to global for debugging in console
+    window._cole = {
+      state: () => ({ points, clickMult, autoClick, prestigeMult, upgrades, eventLog }),
+      save: saveGame,
+      load: loadGame
+    };
+  </script>
+</body>
+</html>
